@@ -5,7 +5,7 @@ This project provides an easy-to-use graphical interface for navigating director
 
 ---
 
-## 🧩 Features
+## Features
 - Navigate through directories easily  
 - Open files directly from the GUI  
 - Create new folders  
@@ -16,19 +16,20 @@ This project provides an easy-to-use graphical interface for navigating director
 
 ---
 
-## 🧠 Purpose
+## Purpose
 This project demonstrates how GUI applications can be developed in **C** using the **GTK** framework.  
 It also helps understand file handling, directory traversal, and event-driven programming concepts.
 
 ---
 
-## ⚙️ Technologies Used
+## Technologies Used
 - **Language:** C  
 - **GUI Library:** GTK (GTK+3)
+- **Headers:** <dirent.h>, <sys/stat.h>, <gio/gio.h>, <windows.h>
 
 ---
 
-## 🖥️ How to Run
+##    How to Run
 1. Make sure GTK is installed on your system.  
    For Ubuntu/Debian:
    ```bash
