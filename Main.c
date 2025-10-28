@@ -36,12 +36,13 @@ GtkWidget *searchEntry;
 GtkWidget *searchButton;
 gchar pathway1[MAX_PATH + 1];
 gchar FName1[MAX_PATH + 1];
+// gchar directoryPath[PATH_MAX + 1] = "\\";
 int p = 0;
 int i = 0;
 int k = 0;
 int l = 0;
-long long files, dfiles;
-long long cnt = 0, dnt = 0;
+// long long files, dfiles;
+// long long cnt = 0, dnt = 0;
 gdouble fraction = 0.1;
 typedef struct nextPath
 {
@@ -63,50 +64,80 @@ typedef struct
     gdouble total_bytes;
     gdouble copied_bytes;
 } CopyProgress;
+/*typedef struct
+{
+    gchar src[MAX_PATH + 1];
+    gchar dest[MAX_PATH + 1];
+    CopyProgress progress;
+    gboolean done;
+} CopyTask;*/
+void update_progress_bar(CopyProgress *progress)
+{
+    progress->fraction = progress->copied_bytes / progress->total_bytes;
+    if (progress->fraction > 1.0)
+        progress->fraction = 1.0;
 
-long calculate_total_size(const char *path)
+    gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(progress->progress_bar), progress->fraction);
+
+    gchar *text = g_strdup_printf("%.1f%%", progress->fraction * 100);
+    gtk_progress_bar_set_text(GTK_PROGRESS_BAR(progress->progress_bar), text);
+    g_free(text);
+
+    while (gtk_events_pending())
+        gtk_main_iteration_do(FALSE);
+}
+
+long long calculate_total_size(const char *path)
 {
     DWORD att = GetFileAttributes(path);
     if (att == INVALID_FILE_ATTRIBUTES)
         return 0;
 
-    long size = 0;
+    long long total_size = 0;
 
     if (att & FILE_ATTRIBUTE_DIRECTORY)
     {
         DIR *dp = opendir(path);
         if (!dp)
             return 0;
+
         struct dirent *entry;
-        char fullPath[MAX_PATH];
+        char fullPath[4096];
+
         while ((entry = readdir(dp)) != NULL)
         {
             if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
                 continue;
+
             snprintf(fullPath, sizeof(fullPath), "%s\\%s", path, entry->d_name);
-            size += calculate_total_size(fullPath);
+            total_size += calculate_total_size(fullPath);
         }
+
         closedir(dp);
     }
     else
     {
         FILE *f = fopen(path, "rb");
-        if (f)
-        {
-            fseek(f, 0, SEEK_END);
-            size = ftell(f);
-            fclose(f);
-        }
+        if (!f)
+            return 0;
+
+        _fseeki64(f, 0, SEEK_END);
+        __int64 file_size = _ftelli64(f);
+        fclose(f);
+
+        total_size = file_size;
     }
-    return size;
+
+    return total_size;
 }
+
 gboolean on_progress_close(GtkWidget *widget, GdkEvent *event, gpointer data)
 {
     gtk_widget_hide(widget);
     return TRUE;
 }
 
-long count_files(const char *path)
+/*long long count_files(const char *path)
 {
     DWORD att = GetFileAttributes(path);
     if (att == INVALID_FILE_ATTRIBUTES)
@@ -139,7 +170,20 @@ long count_files(const char *path)
     }
 
     return count;
-}
+}*/
+
+/*GdkPixbuf *get_drive_icon(int size)
+{
+    GtkIconTheme *theme = gtk_icon_theme_get_default();
+    GError *error = NULL;
+    GdkPixbuf *pixbuf = gtk_icon_theme_load_icon(theme, "drive-harddisk", size, 0, &error);
+    if (!pixbuf)
+    {
+        g_error_free(error);
+        return NULL;
+    }
+    return pixbuf;
+}*/
 
 GdkPixbuf *get_file_icon(const char *filepath, int size)
 {
@@ -264,11 +308,13 @@ void searchFiles(const char *basePath, const char *query, GtkListStore *store)
 void on_search_clicked(GtkButton *button, gpointer user_data)
 {
     const char *query = gtk_entry_get_text(GTK_ENTRY(user_data));
+    if (query[0] == '\0')
+        return;
     gtk_list_store_clear(store);
     char currentPath[MAX_PATH] = "";
     getcwd(currentPath, sizeof(currentPath));
     searchFiles(currentPath, query, store);
-    gtk_label_set_text(GTK_LABEL(labelStatus), "Search complete");
+    // gtk_label_set_text(GTK_LABEL(labelStatus), "Search complete");
 }
 
 void openDirectory()
@@ -284,10 +330,10 @@ void openDirectory()
     }
     gtk_widget_set_opacity(event1, 1);
     gtk_widget_set_opacity(event3, 1);
-    if (!gtk_widget_get_parent(boxSearch))
-        gtk_box_pack_start(GTK_BOX(boxPath), boxSearch, TRUE, TRUE, 0);
-    if (i > 0)
-        gtk_widget_show(boxSearch);
+    /*/ if (!gtk_widget_get_parent(boxSearch))
+         gtk_box_pack_start(GTK_BOX(boxPath), boxSearch, TRUE, TRUE, 0);
+     if (i > 0)
+         gtk_widget_show(boxSearch);*/
     GtkTreeIter iter;
     gtk_list_store_clear(store);
     DIR *dp = opendir(".");
@@ -538,7 +584,7 @@ void createNewFolder(GtkWidget *widget, GdkEventButton *event, gpointer data)
         GtkWidget *entry;
         GtkWidget *area;
         gint response;
-        dialog = gtk_dialog_new_with_buttons("New Folder creation", GTK_WINDOW(window), GTK_DIALOG_MODAL, "Ok", GTK_RESPONSE_OK, "Cancel", GTK_RESPONSE_CANCEL, NULL);
+        dialog = gtk_dialog_new_with_buttons("New Folder", GTK_WINDOW(window), GTK_DIALOG_MODAL, "Ok", GTK_RESPONSE_OK, "Cancel", GTK_RESPONSE_CANCEL, NULL);
         entry = gtk_entry_new();
         gtk_entry_set_placeholder_text(GTK_ENTRY(entry), "Enter a folder name");
         area = gtk_dialog_get_content_area(GTK_DIALOG(dialog));
@@ -630,6 +676,7 @@ void Rename(GtkMenuItem *item, gpointer data)
                 }
                 else
                 {
+                    openDirectory();
                     break;
                 }
             }
@@ -643,13 +690,16 @@ void Rename(GtkMenuItem *item, gpointer data)
     }
     g_free(folderName);
     gtk_widget_destroy(dialog);
-    openDirectory();
 }
 void deleteFunction(const gchar *path, CopyProgress *progress)
 {
     DWORD att = GetFileAttributes(path);
     if (att == INVALID_FILE_ATTRIBUTES)
         return;
+
+    if (att & FILE_ATTRIBUTE_READONLY)
+        SetFileAttributes(path, att & ~FILE_ATTRIBUTE_READONLY);
+
     if (att & FILE_ATTRIBUTE_DIRECTORY)
     {
         DIR *dp = opendir(path);
@@ -670,7 +720,7 @@ void deleteFunction(const gchar *path, CopyProgress *progress)
 
         closedir(dp);
 
-        if (!RemoveDirectory(path))
+        if (rmdir(path))
         {
             gchar msg[256];
             snprintf(msg, sizeof(msg), "Failed to remove directory: %s", path);
@@ -678,9 +728,17 @@ void deleteFunction(const gchar *path, CopyProgress *progress)
         }
     }
     else
-
     {
-        if (!DeleteFile(path))
+        FILE *f = fopen(path, "rb");
+        long long file_size = 0;
+        if (f)
+        {
+            _fseeki64(f, 0, SEEK_END);
+            file_size = _ftelli64(f);
+            fclose(f);
+        }
+
+        if (remove(path))
         {
             gchar msg[256];
             snprintf(msg, sizeof(msg), "Failed to delete file: %s", path);
@@ -688,22 +746,8 @@ void deleteFunction(const gchar *path, CopyProgress *progress)
         }
         else
         {
-            cnt++;
-            if (cnt >= files)
-            {
-                fraction = fraction + 0.01;
-                cnt = 0;
-                if (fraction > 1.0)
-                {
-                    fraction = 1.0;
-                }
-                gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(progress->progress_bar), fraction);
-                gchar *text = g_strdup_printf("%.1f%%", fraction * 100);
-                gtk_progress_bar_set_text(GTK_PROGRESS_BAR(progress->progress_bar), text);
-                g_free(text);
-                while (gtk_events_pending())
-                    gtk_main_iteration_do(FALSE);
-            }
+            progress->copied_bytes += file_size;
+            update_progress_bar(progress);
         }
     }
 }
@@ -719,65 +763,58 @@ void Delete(GtkMenuItem *item, gpointer data)
     gchar *fName = NULL;
     gtk_tree_model_get(model, &iter, 1, &fName, -1);
 
-    if (fName)
+    if (!fName)
+        return;
+
+    GtkWidget *dialog = gtk_message_dialog_new(GTK_WINDOW(window),
+                                               GTK_DIALOG_MODAL,
+                                               GTK_MESSAGE_QUESTION,
+                                               GTK_BUTTONS_YES_NO,
+                                               "Are you sure you want to delete '%s'?", fName);
+
+    gint response = gtk_dialog_run(GTK_DIALOG(dialog));
+    gtk_widget_destroy(dialog);
+
+    if (response != GTK_RESPONSE_YES)
     {
-        GtkWidget *dialog = gtk_message_dialog_new(GTK_WINDOW(window),
-                                                   GTK_DIALOG_MODAL,
-                                                   GTK_MESSAGE_QUESTION,
-                                                   GTK_BUTTONS_YES_NO,
-                                                   "Are you sure you want to delete '%s'?", fName);
-
-        gint response = gtk_dialog_run(GTK_DIALOG(dialog));
-        gtk_widget_destroy(dialog);
-        dfiles = count_files(fName);
-        if (response == GTK_RESPONSE_YES)
-        {
-            GtkWidget *progress_window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
-            gtk_window_set_title(GTK_WINDOW(progress_window), "Deleting...");
-            gtk_window_set_default_size(GTK_WINDOW(progress_window), 400, 60);
-            gtk_window_set_position(GTK_WINDOW(progress_window), GTK_WIN_POS_CENTER);
-            gtk_container_set_border_width(GTK_CONTAINER(progress_window), 10);
-            gtk_window_set_resizable(GTK_WINDOW(progress_window), FALSE);
-            gtk_window_set_type_hint(GTK_WINDOW(progress_window), GDK_WINDOW_TYPE_HINT_DIALOG);
-
-            GtkWidget *progress_bar = gtk_progress_bar_new();
-            gtk_progress_bar_set_show_text(GTK_PROGRESS_BAR(progress_bar), TRUE);
-            gtk_container_add(GTK_CONTAINER(progress_window), progress_bar);
-            gtk_widget_show_all(progress_window);
-            CopyProgress prog = {0};
-            prog.progress_bar = progress_bar;
-            prog.total_bytes = calculate_total_size(fName);
-            prog.copied_bytes = 0;
-            prog.fraction = 0.0;
-             char fullPath[MAX_PATH] = "";
-             char compPath[MAX_PATH] = "";
-             char currentPath[MAX_PATH] = "";
-             snprintf(compPath, sizeof(compPath), "%s\\%s", pathway1, FName1);
-             getcwd(currentPath, sizeof(currentPath));
-            snprintf(fullPath, sizeof(fullPath), "%s\\%s", currentPath, fName);
-            if(strcmp(fullPath,compPath) == 0)
-            {
-                 gtk_widget_set_opacity(event4, 0.1);
-                 l = 0;
-                 k = 0;   
-            }
-            if (prog.total_bytes >= 0)
-            {
-                deleteFunction(fullPath, &prog);
-            }
-            cnt = 0;
-            while (gtk_events_pending())
-                gtk_main_iteration_do(FALSE);
-            g_usleep(400000);
-            gtk_widget_destroy(progress_window);
-            fraction = 0;
-            g_signal_connect(progress_window, "delete-event", G_CALLBACK(on_progress_close), NULL);
-            openDirectory();
-        }
-
         g_free(fName);
+        return;
     }
+
+    GtkWidget *progress_window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+    gtk_window_set_title(GTK_WINDOW(progress_window), "Deleting...");
+    gtk_window_set_default_size(GTK_WINDOW(progress_window), 400, 60);
+    gtk_window_set_position(GTK_WINDOW(progress_window), GTK_WIN_POS_CENTER);
+    gtk_container_set_border_width(GTK_CONTAINER(progress_window), 10);
+    gtk_window_set_resizable(GTK_WINDOW(progress_window), FALSE);
+    gtk_window_set_type_hint(GTK_WINDOW(progress_window), GDK_WINDOW_TYPE_HINT_DIALOG);
+
+    GtkWidget *progress_bar = gtk_progress_bar_new();
+    gtk_progress_bar_set_show_text(GTK_PROGRESS_BAR(progress_bar), TRUE);
+    gtk_container_add(GTK_CONTAINER(progress_window), progress_bar);
+    gtk_widget_show_all(progress_window);
+
+    CopyProgress prog = {0};
+    prog.progress_bar = progress_bar;
+    prog.total_bytes = calculate_total_size(fName);
+    prog.copied_bytes = 0;
+    prog.fraction = 0.0;
+
+    char fullPath[MAX_PATH];
+    getcwd(fullPath, sizeof(fullPath));
+    strncat(fullPath, "\\", sizeof(fullPath) - strlen(fullPath) - 1);
+    strncat(fullPath, fName, sizeof(fullPath) - strlen(fullPath) - 1);
+
+    deleteFunction(fullPath, &prog);
+
+    update_progress_bar(&prog);
+
+    gtk_widget_destroy(progress_window);
+    openDirectory();
+
+    g_free(fName);
 }
+
 void Copy(GtkMenuItem *item, gpointer data)
 {
     k = 1;
@@ -792,18 +829,6 @@ void Copy(GtkMenuItem *item, gpointer data)
     gtk_tree_model_get(model, &iter, 1, &gname, -1);
     snprintf(FName1, sizeof(FName1), "%s", gname);
     gtk_widget_set_opacity(event4, 1);
-    files = count_files(FName1);
-    if (files % 100 != 0)
-    {
-        files = files / 100;
-        files++;
-    }
-    else
-        files = files / 100;
-    if (l == 1)
-    {
-        files = files * 2;
-    }
 }
 
 void Cut(GtkMenuItem *item, gpointer data)
@@ -821,11 +846,15 @@ void Cut(GtkMenuItem *item, gpointer data)
     snprintf(FName1, sizeof(FName1), "%s", gname);
     gtk_widget_set_opacity(event4, 1);
 }
-void deleteFunctionForCut(const gchar *path, CopyProgress *progress)
+void deleteFunctionForCut(const char *path, CopyProgress *progress)
 {
     DWORD att = GetFileAttributes(path);
     if (att == INVALID_FILE_ATTRIBUTES)
         return;
+
+    if (att & FILE_ATTRIBUTE_READONLY)
+        SetFileAttributes(path, att & ~FILE_ATTRIBUTE_READONLY);
+
     if (att & FILE_ATTRIBUTE_DIRECTORY)
     {
         DIR *dp = opendir(path);
@@ -833,7 +862,7 @@ void deleteFunctionForCut(const gchar *path, CopyProgress *progress)
             return;
 
         struct dirent *entry;
-        gchar fullPath[MAX_PATH + 1];
+        char fullPath[4096];
 
         while ((entry = readdir(dp)) != NULL)
         {
@@ -845,40 +874,22 @@ void deleteFunctionForCut(const gchar *path, CopyProgress *progress)
         }
 
         closedir(dp);
-
-        if (!RemoveDirectory(path))
-        {
-            cnt++;
-            if (cnt >= files)
-            {
-                fraction = fraction + 0.01;
-                cnt = 0;
-                if (fraction > 1.0)
-                {
-                    fraction = 1.0;
-                }
-                gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(progress->progress_bar), fraction);
-                gchar *text = g_strdup_printf("%.1f%%", fraction * 100);
-                gtk_progress_bar_set_text(GTK_PROGRESS_BAR(progress->progress_bar), text);
-                g_free(text);
-
-                while (gtk_events_pending())
-                    gtk_main_iteration_do(FALSE);
-            }
-            gchar msg[256];
-            snprintf(msg, sizeof(msg), "Failed to remove directory: %s", path);
-            MessageBoxA(NULL, msg, "Error", MB_OK | MB_ICONERROR);
-        }
+        RemoveDirectory(path);
     }
     else
-
     {
-        if (!DeleteFile(path))
+        FILE *f = fopen(path, "rb");
+        gdouble size = 0;
+        if (f)
         {
-            gchar msg[256];
-            snprintf(msg, sizeof(msg), "Failed to delete file: %s", path);
-            MessageBoxA(NULL, msg, "Error", MB_OK | MB_ICONERROR);
+            _fseeki64(f, 0, SEEK_END);
+            size = (_fseeki64(f, 0, SEEK_END));
+            fclose(f);
         }
+
+        DeleteFile(path);
+        progress->copied_bytes += size;
+        update_progress_bar(progress);
     }
 }
 
@@ -923,20 +934,9 @@ void Paste(const gchar *src, const gchar *dest, CopyProgress *progress)
         size_t bytesRead;
         while ((bytesRead = fread(buffer, 1, sizeof(buffer), source)) > 0)
         {
-            fwrite(buffer, 1, bytesRead, target);
-        }
-        cnt++;
-        fclose(source);
-        fclose(target);
-        if (cnt >= files)
-        {
-            fraction = fraction + 0.01;
-            cnt = 0;
-            if (fraction > 1.0)
-            {
-                fraction = 1.0;
-            }
-
+            size_t bytesWritten = fwrite(buffer, 1, bytesRead, target);
+            progress->copied_bytes += bytesWritten;
+            fraction = (double)progress->copied_bytes / progress->total_bytes;
             gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(progress->progress_bar), fraction);
             gchar *text = g_strdup_printf("%.1f%%", fraction * 100);
             gtk_progress_bar_set_text(GTK_PROGRESS_BAR(progress->progress_bar), text);
@@ -945,6 +945,8 @@ void Paste(const gchar *src, const gchar *dest, CopyProgress *progress)
             while (gtk_events_pending())
                 gtk_main_iteration_do(FALSE);
         }
+        fclose(source);
+        fclose(target);
     }
 }
 
@@ -953,10 +955,7 @@ void copyFunction()
     if (l == 1 || k == 1)
     {
         GtkWidget *progress_window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
-        if (k == 1)
-            gtk_window_set_title(GTK_WINDOW(progress_window), "Copying...");
-        else
-            gtk_window_set_title(GTK_WINDOW(progress_window), "Moving...");
+        gtk_window_set_title(GTK_WINDOW(progress_window), k ? "Copying..." : "Moving...");
         gtk_window_set_default_size(GTK_WINDOW(progress_window), 400, 60);
         gtk_window_set_position(GTK_WINDOW(progress_window), GTK_WIN_POS_CENTER);
         gtk_container_set_border_width(GTK_CONTAINER(progress_window), 10);
@@ -968,10 +967,7 @@ void copyFunction()
         gtk_container_add(GTK_CONTAINER(progress_window), progress_bar);
         gtk_widget_show_all(progress_window);
 
-        gchar src[MAX_PATH + 1];
-        gchar dest[MAX_PATH + 1];
-        gchar dest_folder[MAX_PATH + 1];
-
+        gchar src[MAX_PATH + 1], dest[MAX_PATH + 1], dest_folder[MAX_PATH + 1];
         getcwd(dest_folder, sizeof(dest_folder));
         snprintf(src, sizeof(src), "%s\\%s", pathway1, FName1);
         snprintf(dest, sizeof(dest), "%s\\%s", dest_folder, FName1);
@@ -979,25 +975,23 @@ void copyFunction()
         CopyProgress prog = {0};
         prog.progress_bar = progress_bar;
         prog.total_bytes = calculate_total_size(src);
-        g_print("%ld", prog.total_bytes);
         prog.copied_bytes = 0;
         prog.fraction = 0.0;
 
-        if (prog.total_bytes >= 0)
-        {
-            Paste(src, dest, &prog);
-        }
-        cnt = 0;
+        Paste(src, dest, &prog);
+
         if (l == 1)
+        {
             deleteFunctionForCut(src, &prog);
-        while (gtk_events_pending())
-            gtk_main_iteration_do(FALSE);
-        g_usleep(400000);
+        }
+
+        update_progress_bar(&prog);
+
         gtk_widget_destroy(progress_window);
+
         l = 0;
         gtk_widget_set_opacity(event4, 0.1);
-        fraction = 0;
-        g_signal_connect(progress_window, "delete-event", G_CALLBACK(on_progress_close), NULL);
+
         openDirectory();
     }
 }
